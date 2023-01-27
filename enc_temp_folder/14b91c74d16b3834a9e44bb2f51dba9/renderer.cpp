@@ -274,7 +274,7 @@ glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::Gr
     const float k_a = 0.1;
     const float k_d = 0.7;
     const float k_s = 0.2;
-    const float alpha = 100;
+    const float alpha = 10;
     glm::vec3 zero_vec = glm::vec3(0.0f);
 
     // Get normalized vectors
@@ -319,11 +319,6 @@ glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
                 c = glm::vec4(shading, c.a);
             }
         }
-
-        //    if (m_config.boundaryEnhancement) {
-        //    const float gradientM = m_pGradientVolume->getGradientInterpolate(samplePos).magnitude;
-        //    sampleColor.a = sampleColor.a * (k_gc + k_gs * pow((gradientM), k_ge));
-        //}
 
         sampleColor = preSampleColor + (1.0f - preSampleColor.a) * (glm::vec4(c.r * c.a, c.g * c.a, c.b * c.a, c.a));
         preSampleColor = sampleColor;
@@ -408,11 +403,6 @@ glm::vec4 Renderer::traceRayMIDA(const Ray& ray, float sampleStep) const
                 c = glm::vec4(shading, c.a);
             }
         }
-
-        if (m_config.boundaryEnhancement) {
-            const float gradientM = m_pGradientVolume->getGradientInterpolate(samplePos).magnitude;
-            sampleColor.a = sampleColor.a * (k_gc + k_gs * pow((gradientM), k_ge));
-        }
      
 
         //float opacity = c.a;
@@ -423,7 +413,10 @@ glm::vec4 Renderer::traceRayMIDA(const Ray& ray, float sampleStep) const
 
     }
 
-
+    if (m_config.boundaryEnhancement) {
+        const float gradientM = m_pGradientVolume->getGradientInterpolate(samplePos).magnitude;
+        sampleColor.a = sampleColor.a * (k_gc + k_gs * pow((gradientM), k_ge));
+    }
     return sampleColor;
 }
 
