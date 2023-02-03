@@ -20,8 +20,19 @@ struct RenderConfig {
     glm::ivec2 renderResolution;
 
     bool volumeShading { false };
+    bool toneShading { false };
     bool boundaryEnhancement { false };
     float isoValue { 95.0f };
+    float gammaValue { 0.0f };
+
+    float diffuse { 0.5f };
+    float ambient { 0.5f };
+    float specular { 0.5f };
+    float alpha { 100.0f };
+
+    float warm { 0.5f };
+    float cool { 0.5f };
+    float illumination { 0.5f };
 
     // 1D transfer function.
     std::array<glm::vec4, 256> tfColorMap;

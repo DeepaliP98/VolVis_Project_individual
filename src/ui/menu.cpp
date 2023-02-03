@@ -134,9 +134,23 @@ void Menu::showRayCastTab(std::chrono::duration<double> renderTime)
         ImGui::RadioButton("2D Transfer Function", pRenderModeInt, int(render::RenderMode::RenderTF2D));
         ImGui::RadioButton("MIDA", pRenderModeInt, int(render::RenderMode::RenderMIDA));
 
+        ImGui::DragFloat("Gamma value", &m_renderConfig.gammaValue, 0.1f, -1.0f, 1.0f);
+
+
         ImGui::NewLine();
 
         ImGui::Checkbox("Volume Shading", &m_renderConfig.volumeShading);
+        ImGui::DragFloat("Specular", &m_renderConfig.gammaValue, 0.1f, 0.0f, 1.0f);
+        ImGui::DragFloat("Ambient", &m_renderConfig.specular, 0.1f, 0.0f, 1.0f);
+        ImGui::DragFloat("Diffuse", &m_renderConfig.diffuse, 0.1f, 0.0f, 1.0f);
+        ImGui::DragFloat("Alpha", &m_renderConfig.alpha, 5.0f, 0, 500.0f);
+
+
+        ImGui::Checkbox("Tone Shading", &m_renderConfig.toneShading);
+        ImGui::DragFloat("Warm", &m_renderConfig.gammaValue, 0.1f, 0.0f, 1.0f);
+        ImGui::DragFloat("Cool", &m_renderConfig.specular, 0.1f, 0.0f, 1.0f);
+        ImGui::DragFloat("Illumination", &m_renderConfig.diffuse, 0.1f, 0.0f, 1.0f);
+
         ImGui::Checkbox("Boundary Enhancement", &m_renderConfig.boundaryEnhancement);
 
         ImGui::NewLine();

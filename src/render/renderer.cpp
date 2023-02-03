@@ -126,7 +126,6 @@ void Renderer::render()
                 color = traceRayMIDA(ray, sampleStep);
                 break;
             }
-
             };
             // Write the resulting color to the screen.
             fillColor(x, y, color);
@@ -140,21 +139,6 @@ void Renderer::render()
         }
 #endif
 }
-
-//glm::vec3 addVector(const glm::vec3& vec1, const glm::vec3& vec2)
-//{
-//    float x = vec1.x + vec2.x;
-//    float y = vec1.y + vec2.y;
-//    float z = vec1.z + vec2.z;
-//
-//
-//    glm::vec3 v1(1.f, 1.f, 1.f);
-//    glm::vec3 v2(2.f, 2.f, 2.f);
-//    glm::vec3 v3 = v1 + v2;
-//
-//    return glm::vec3(x, y, z);
-//}
-
 
 // ======= DO NOT MODIFY THIS FUNCTION ========
 // This function generates a view alongside a plane perpendicular to the camera through the center of the volume
@@ -204,35 +188,30 @@ glm::vec4 Renderer::traceRayISO(const Ray& ray, float sampleStep) const
     float preT = 0.0f;
     bool isHit = false;
     const glm::vec3 increment = sampleStep * ray.direction;
-    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) 
-    {
+    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
         const float val = m_pVolume->getSampleInterpolate(samplePos);
-        if (m_config.isoValue < val) 
-        {
-             accuratePos = ray.origin + ray.tmin * ray.direction
+        if (m_config.isoValue < val) {
+            accuratePos = ray.origin + ray.tmin * ray.direction
                 + (bisectionAccuracy(ray, preT, t, m_config.isoValue) - ray.tmin) * ray.direction;
             isHit = true;
             break;
         }
-        preSamplePos = samplePos;
+        preSamplePos = accuratePos;
         preT = t;
     }
 
-    if (isHit)
-    {
-        glm::vec3 result_color = isoColor;
-        if (m_config.volumeShading) {
-            //We use the camera position for the light vector, however reverse it as we need the light going from the object to camera and not nice versa
-            result_color = computePhongShading(isoColor, m_pGradientVolume->getGradientInterpolate(accuratePos), -1.0f * m_pCamera->position(), m_pCamera->position());
-        }
-            
-        return glm::vec4(result_color, 1.0f);
-    }
-    else
-    {
+
+    if (isHit) {
+        glm::vec3 L = -1.0f * glm::normalize(m_pCamera->position());
+        glm::vec3 shading = computeShading(isoColor, m_pGradientVolume->getGradientInterpolate(accuratePos), L, m_pCamera->position());
+        return glm::vec4(shading, 1.0f);
+
+    } else {
         return glm::vec4(glm::vec3(0), 0.0f);
     }
 }
+
+
 
 // ======= TODO: IMPLEMENT ========
 // Given that the iso value lies somewhere between t0 and t1, find a t for which the value
@@ -269,65 +248,138 @@ float Renderer::bisectionAccuracy(const Ray& ray, float t0, float t1, float isoV
 //
 // Use the given color for the ambient/specular/diffuse (you are allowed to scale these constants by a scalar value).
 // You are free to choose any specular power that you'd like.
-glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V)
+glm::vec3 Renderer::computePhongShading(const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V) const
 {
-    const float k_a = 0.1;
-    const float k_d = 0.7;
-    const float k_s = 0.2;
-    const float alpha = 100;
+    const float k_a = m_config.ambient;
+    const float k_d = m_config.diffuse;
+    const float k_s = m_config.specular;
+    const float alpha = m_config.alpha;
     glm::vec3 zero_vec = glm::vec3(0.0f);
 
     // Get normalized vectors
-    glm::vec3 gradient_hat = gradient.magnitude != 0 ? glm::normalize(gradient.dir) : zero_vec;
-    glm::vec3 L_hat = glm::length(L) != 0 ? glm::normalize(L) : zero_vec;
-    glm::vec3 V_hat = glm::length(V) != 0 ? glm::normalize(V) : zero_vec;
-   
-    // Get reflection vector
-    glm::vec3 R = 2.0f * glm::dot(L_hat ,gradient_hat) * gradient_hat - L_hat;
-    glm::vec3 R_hat = glm::length(R) != 0 ? glm::normalize(R) : zero_vec;
-    glm::vec3 specular = k_s * pow(glm::dot(R_hat, V_hat), alpha) * color;
-    glm::vec3 ambient = k_a * color;
-    glm::vec3 diffuse = k_d * glm::dot(L_hat, gradient_hat) * color;
+    glm::vec3 gradient_hat = gradient.magnitude != 0.0f ? glm::normalize(gradient.dir) : zero_vec;
+    glm::vec3 L_hat = glm::length(L) != 0.0f ? (L) : zero_vec;
+    glm::vec3 V_hat = glm::length(V) != 0.0f ? glm::normalize(V) : zero_vec;
 
-    //Calculate illumination
-    glm::vec3 i_p = ambient+specular+diffuse;
+    // Dot product
+    float dotNL = glm::clamp(glm::dot(L_hat, gradient_hat), 0.0f, 1.0f);
+
+    // Get reflection vector
+    glm::vec3 R = 2.0f * dotNL * gradient_hat - L_hat;
+    glm::vec3 R_hat = glm::length(R) != 0.0f ? glm::normalize(R) : zero_vec;
+    glm::vec3 specular = k_s * pow(glm::clamp(glm::dot(R_hat, V_hat), 0.0f, 1.0f), alpha) * color;
+    glm::vec3 ambient = k_a * color;
+    glm::vec3 diffuse = k_d * dotNL * color;
+
+    // Calculate illumination
+    glm::vec3 i_p = ambient + specular + diffuse;
 
     return i_p;
 }
+
+//Tone shading, where objects near the light are warmer and farther are darker. We use the normal vector and the light vector to calculate the shading
+glm::vec3 Renderer::computeToneShading(const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L) const
+{
+    glm::vec3 zero_vec = glm::vec3(0.0f);
+    glm::vec3 object_illumination = glm::vec3(0.0f);
+
+    //amount of illumination of objct
+    const float k_td = m_config.illumination;
+    //Warm color
+    const float k_ty = m_config.warm;
+    //Cool color
+    const float k_tb = m_config.cool;
+
+
+    // Get normalized vectors
+    glm::vec3 gradient_hat = gradient.magnitude != 0.0f ? glm::normalize(gradient.dir) : zero_vec;
+    glm::vec3 L_hat = glm::length(L) != 0.0f ? (L) : zero_vec;
+
+
+    float light_gradient = glm::dot(L_hat, gradient_hat);
+
+    //Warm color closer objects receive
+    const glm::vec3& warm_color = {
+        k_ty,
+        k_ty,
+        0.0f,
+    };
+
+    // Cool color closer objects receive
+    const glm::vec3& cool_color = { 0.0f, 0.0f, k_tb };
+    
+    //Illuminated object color contribution
+    if (light_gradient > 0) {
+        object_illumination = color * light_gradient;
+    } else {
+        object_illumination = glm::vec3(0.0f);
+    }
+
+    const glm::vec3& tone_illumination = ((1.0f + light_gradient) / 2) * warm_color + (1 - (1.0f + light_gradient) / 2) * cool_color;
+
+    return tone_illumination + k_td*object_illumination;
+
+}
+
+glm::vec3 Renderer::computeShading(const glm::vec3& color, const volume::GradientVoxel& gradient, const glm::vec3& L, const glm::vec3& V) const
+{
+    glm::vec3 result_color = color;
+    if (m_config.volumeShading) {
+        // We use the camera position for the light vector, however reverse it as we need the light going from the object to camera and not nice versa
+        result_color = computePhongShading(result_color, gradient, L, V);
+    }
+    if (m_config.toneShading) {
+        // Tone shading, where objects near the light are warmer and farther are darker
+        result_color = computeToneShading(result_color, gradient, L);
+    }
+    return glm::vec4(result_color, 1.0f);
+
+}
+
 
 // ======= TODO: IMPLEMENT ========
 // In this function, implement 1D transfer function raycasting.
 // Use getTFValue to compute the color for a given volume value according to the 1D transfer function.
 glm::vec4 Renderer::traceRayComposite(const Ray& ray, float sampleStep) const
 {
+
+    const float k_gc = 0.7f;
+    const float k_gs = 100.0f;
+    const float k_ge = 2.0f;
+    float opacity_new = 0.0f;
+
     glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
     const glm::vec3 increment = sampleStep * ray.direction;
 
-    glm::vec4 sampleColor, preSampleColor  = glm::vec4(0.0f);
+    glm::vec4 sampleColor, preSampleColor = glm::vec4(0.0f);
 
-    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) 
-    {
+    for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+        if (preSampleColor.a == 0.95)
+            break;
         const float val = m_pVolume->getSampleInterpolate(samplePos);
 
         // front to back
         glm::vec4 c = getTFValue(val);
-        // phong shading
-        if (m_config.volumeShading) {
-            glm::vec3 shading = computePhongShading(glm::vec3(c), m_pGradientVolume->getGradientInterpolate(samplePos),
-                -1.0f * m_pCamera->position(), m_pCamera->position());
-            if (!glm::any(glm::isnan(shading))) {
-                c = glm::vec4(shading, c.a);
-            }
-        }
+        //shading
+        glm::vec3 L = -1.0f * glm::normalize(m_pCamera->position());
+        glm::vec3 shading = computeShading(glm::vec3(c), m_pGradientVolume->getGradientInterpolate(samplePos),
+            L, m_pCamera->position());
+        c = glm::vec4(shading, c.a);
 
-        //    if (m_config.boundaryEnhancement) {
-        //    const float gradientM = m_pGradientVolume->getGradientInterpolate(samplePos).magnitude;
-        //    sampleColor.a = sampleColor.a * (k_gc + k_gs * pow((gradientM), k_ge));
-        //}
+        if (m_config.boundaryEnhancement) {
+            const float gradientM = m_pGradientVolume->getGradientInterpolate(samplePos).magnitude;
+            sampleColor.a = sampleColor.a * (k_gc + k_gs * pow((gradientM), k_ge));
+        }
 
         sampleColor = preSampleColor + (1.0f - preSampleColor.a) * (glm::vec4(c.r * c.a, c.g * c.a, c.b * c.a, c.a));
         preSampleColor = sampleColor;
+
+        // early stopping if opacity hits 1, no need t calculate colors behind it
+        if (preSampleColor.a >= 0.99) {
+            break;
+        }
     }
+
     return sampleColor;
 }
 
@@ -353,23 +405,32 @@ glm::vec4 Renderer::traceRayTF2D(const Ray& ray, float sampleStep) const
     glm::vec4 sampleColor, preSampleColor = glm::vec4(0.0f);
 
     for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+        if (preSampleColor.a == 0.95)
+            break;
+
         const float val = m_pVolume->getSampleInterpolate(samplePos);
-        const const float gradientM = m_pGradientVolume->getGradientInterpolate(samplePos).magnitude;
+        const float gradientM = m_pGradientVolume->getGradientInterpolate(samplePos).magnitude;
 
         // front to back
         glm::vec4 c = m_config.TF2DColor;
         c.a = getTF2DOpacity(val, gradientM);
         sampleColor = preSampleColor + (1.0f - preSampleColor.a) * (glm::vec4(c.r * c.a, c.g * c.a, c.b * c.a, c.a));
         preSampleColor = sampleColor;
+
+        // early stopping if opacity hits 1, no need t calculate colors behind it
+        if (preSampleColor.a >= 0.99) {
+            break;
+        }
     }
     return sampleColor;
 }
-
+//Maximum Intensity Difference Accumulation
+// Function that combines the advantages of DVR and MIP to allow us to use a simpler transfer function
 glm::vec4 Renderer::traceRayMIDA(const Ray& ray, float sampleStep) const
 {
-    const float k_gc = 0.7f;
+    const float k_gc = 2.0f;
     const float k_gs = 10.0f;
-    const float k_ge = 2.0f;
+    const float k_ge = 10.0f;
     glm::vec3 samplePos = ray.origin + ray.tmin * ray.direction;
     const glm::vec3 increment = sampleStep * ray.direction;
 
@@ -378,49 +439,56 @@ glm::vec4 Renderer::traceRayMIDA(const Ray& ray, float sampleStep) const
     const float volRange = m_pVolume->maximum() - m_pVolume->minimum();
     float currentMax = 0.0f;
     float delta = 0.0f;
-    float opacity_new;
     float beta = 1.0f;
 
     for (float t = ray.tmin; t <= ray.tmax; t += sampleStep, samplePos += increment) {
+
+        //Break if opacity has crossed threshold
+        if (preSampleColor.a == 0.95)
+            break;
+
+        //Get voxel value
         const float val = m_pVolume->getSampleInterpolate(samplePos);
-        if (val > 1.0f) {
-        float yes = 1.0f;
-        }
+        
+        //normalize voxel value
         const float val_norm = (val - m_pVolume->minimum()) / volRange;
+
+        //find if voxel value greater than max
         if (val_norm > currentMax) {
+
+            //assign delta the jump between max and current voxel value
             delta = val_norm - currentMax;
+
+            //set new max voxel value
             currentMax = val_norm;
         } else {
             delta = 0;
         }
 
-        
-
         // front to back
-        beta = 1 - delta;
-        glm::vec4 c = getTFValue(val);
-
-        glm::vec3 L = -2.0f * glm::normalize(m_pCamera->position());
-        if (m_config.volumeShading) {
-            glm::vec3 shading = computePhongShading(glm::vec3(c), m_pGradientVolume->getGradientInterpolate(samplePos),
-                L, m_pCamera->position());
-            if (!glm::any(glm::isnan(shading))) {
-                c = glm::vec4(shading, c.a);
-            }
+        if (m_config.gammaValue < 0)
+            beta = 1 - delta * (1 + m_config.gammaValue);
+        else {
+            beta = (1 - delta);
         }
 
+        glm::vec4 c = getTFValue(val);
+
+        glm::vec3 L = -1.0f * glm::normalize(m_pCamera->position());
+
+        //Shading
+        glm::vec3 shading = computeShading(glm::vec3(c), m_pGradientVolume->getGradientInterpolate(samplePos),L, m_pCamera->position());
+        c = glm::vec4(shading, c.a);
+
+        //Boundary enhancement to enhance "surfaceness"
         if (m_config.boundaryEnhancement) {
             const float gradientM = m_pGradientVolume->getGradientInterpolate(samplePos).magnitude;
             sampleColor.a = sampleColor.a * (k_gc + k_gs * pow((gradientM), k_ge));
-        }
-     
+        } 
 
-        //float opacity = c.a;
+        //compositing
         sampleColor = beta * preSampleColor + (1.0f - beta * preSampleColor.a) * (glm::vec4(c.r * c.a, c.g * c.a, c.b * c.a, c.a));
-        opacity_new = beta * preSampleColor.a + (1.0f - beta * preSampleColor.a) * c.a;
-        sampleColor.a = opacity_new;
         preSampleColor = sampleColor;
-
     }
 
 
@@ -438,6 +506,7 @@ bool isInTriangle(float triangleHeight, float triangleRadius, float traingleApex
     glm::vec2 right = glm::vec2(traingleApex + triangleRadius / 2.0f, triangleHeight);
     glm::vec2 left = glm::vec2(traingleApex - triangleRadius / 2.0f, triangleHeight);
 
+    // use cross product to decide whether the point lands in the triangle
     if (cross(apex, right, sample) > 0 && cross(right, left, sample) > 0 && cross(left, apex, sample) > 0)
         return true;
     return false;
@@ -452,25 +521,19 @@ bool isInTriangle(float triangleHeight, float triangleRadius, float traingleApex
 float Renderer::getTF2DOpacity(float intensity, float gradientMagnitude) const
 {
 
-    float triangleHeight = m_pGradientVolume->maxMagnitude() - m_pGradientVolume->minMagnitude();    
+    float triangleHeight = m_pGradientVolume->maxMagnitude() - m_pGradientVolume->minMagnitude();
 
-    //if (isInRangeOfTriangle(triangleHeight, m_config.TF2DRadius, m_config.TF2DIntensity, gradientMagnitude ,intensity)) {
-    //    float x_traingle = (m_config.TF2DRadius * gradientMagnitude) / (2 * triangleHeight);
-
-    //    // Calculate the ratio of distance of intensity from apex/ length from apex vertical to diagonal
-    //    float ratio = (std::abs(m_config.TF2DIntensity - intensity) / x_traingle) * 1;
-
-    //    // since value drops from 1 to 0 and not 0 to 1
-    //    return 1 - ratio;
-    //}
-
-    if (isInTriangle(triangleHeight, m_config.TF2DRadius, m_config.TF2DIntensity, glm::vec2(intensity, gradientMagnitude))) {
-        return 0.3f;
+    if (isInTriangle(triangleHeight, m_config.TF2DRadius * 2, m_config.TF2DIntensity, glm::vec2(intensity, gradientMagnitude))) {
+        // m_config.TF2DRadius  is half of the triangle base line
+        // Distance from center to left or right diagonal line (y = gradientMagnitude)
+        float distance = (m_config.TF2DRadius) * (gradientMagnitude / triangleHeight);
+        // Calculate the ratio of distance of intensity from center vertical line to diagonal line
+        float ratio = abs(intensity - m_config.TF2DIntensity) / distance;
+        return (1.0f - ratio) * m_config.TF2DColor.a;
     }
+
     return 0.0f;
-
 }
-
 
 // This function computes if a ray intersects with the axis-aligned bounding box around the volume.
 // If the ray intersects then tmin/tmax are set to the distance at which the ray hits/exists the
@@ -510,24 +573,4 @@ void Renderer::fillColor(int x, int y, const glm::vec4& color)
     const size_t index = static_cast<size_t>(m_config.renderResolution.x * y + x);
     m_frameBuffer[index] = color;
 }
-
-
-
-// Determine the range of values of intensity for gradient to be inside the traingle
-//  Given the triangle in the viewer is symmetric and is centred around m_config.TF2DIntensity
-//  We use the fatch that tan(theta)==(m_config.TF2DRadius/2)/(gradient_max-gradient_m)==x_traingle/y
-//  hence for given gradient, the point will lie inside the triangle only if x is within +/- x_traingle pf TF2DIntensity
-bool Renderer::isInRangeOfTriangle(float traingleHeight, float triangleRadius, float traingleApex, float yCoord, float xCoord) const
-{
-    // get range of x of the traingle given y
-    float x_traingle = (triangleRadius * yCoord) / (2 * traingleHeight);
-
-    // ensuring limits
-    float x_max = std::min(traingleApex + x_traingle, m_pVolume->maximum());
-    float x_min = std::max(traingleApex - x_traingle, m_pVolume->minimum());
-
-    // check if xCoord withing range of x_triangle else point not inside
-    return (xCoord <= x_max && xCoord >= x_min) ? true : false;
-}
-
 }
